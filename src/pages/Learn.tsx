@@ -4,25 +4,25 @@ import { useNavigate } from 'react-router-dom';
 import Navbar from '../components/Navbar';
 import Footer from '../components/Footer';
 import LevelInterface from '../components/LevelInterface';
-import { useAuthSession } from '@/hooks/useAuthSession';
-import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '../context/AuthContext';
+import { useToast } from '../hooks/use-toast';
 
 const Learn = () => {
-  const { user, loading } = useAuthSession();
+  const { user, isLoading } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
 
   useEffect(() => {
-    if (!loading && !user) {
+    if (!isLoading && !user) {
       toast({
         title: "Authentication required",
         description: "Please sign in to access the learning content.",
       });
       navigate('/auth');
     }
-  }, [user, loading, navigate, toast]);
+  }, [user, isLoading, navigate, toast]);
 
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="min-h-screen flex flex-col">
         <Navbar />
