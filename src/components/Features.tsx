@@ -82,7 +82,7 @@ const Features = () => {
                   <div className="font-mono text-sm bg-gray-900 text-green-400 p-4 rounded-md mb-4">
                     <div>
                       <span className="text-blue-400">SELECT</span> * <span className="text-blue-400">FROM</span> buildings<br/>
-                      <span className="text-blue-400">WHERE</span> height > 3<br/>
+                      <span className="text-blue-400">WHERE</span> height {'>'} 3<br/>
                       <span className="text-blue-400">ORDER BY</span> construction_date;
                     </div>
                   </div>
