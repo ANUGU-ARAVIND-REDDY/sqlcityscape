@@ -1,6 +1,8 @@
 
 import React, { useState } from 'react';
 import { Play, X, Check, HelpCircle } from 'lucide-react';
+import { supabase } from '@/integrations/supabase/client';
+import { useToast } from '@/hooks/use-toast';
 
 interface CodeEditorProps {
   initialCode?: string;
@@ -14,26 +16,51 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
   const [code, setCode] = useState(initialCode);
   const [showHint, setShowHint] = useState(false);
   const [feedback, setFeedback] = useState<{ message: string; success: boolean } | null>(null);
+  const [isExecuting, setIsExecuting] = useState(false);
+  const { toast } = useToast();
 
-  const handleExecute = () => {
-    // Simulate execution and feedback
+  const handleExecute = async () => {
+    // Clear previous feedback
     setFeedback(null);
+    setIsExecuting(true);
     
-    // Artificial delay to simulate processing
-    setTimeout(() => {
-      const isValid = !code.includes("ERROR") && code.trim().length > 10;
+    try {
+      // Execute the SQL query
+      const { data, error } = await supabase.rpc('execute_sql_query', { query: code });
       
+      if (error) {
+        setFeedback({
+          message: `Error: ${error.message}`,
+          success: false
+        });
+        return;
+      }
+      
+      // Success feedback
       setFeedback({
-        message: isValid 
-          ? "Query executed successfully!" 
-          : "Error: Please check your SQL syntax",
-        success: isValid
+        message: "Query executed successfully!",
+        success: true
       });
       
-      if (isValid) {
-        onExecute(code);
-      }
-    }, 600);
+      // Call the onExecute callback
+      onExecute(code);
+      
+      // Display a toast with the query results
+      toast({
+        title: "Query Result",
+        description: `${data?.length || 0} rows returned`,
+      });
+      
+    } catch (err) {
+      // Graceful error handling for non-Supabase errors
+      console.error("Query execution error:", err);
+      setFeedback({
+        message: `Error: ${err instanceof Error ? err.message : "Unknown error occurred"}`,
+        success: false
+      });
+    } finally {
+      setIsExecuting(false);
+    }
   };
 
   return (
@@ -68,7 +95,7 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
         
         {/* Hint Popup */}
         {showHint && (
-          <div className="absolute right-4 top-4 w-64 p-3 glass rounded-md shadow-md animate-fade-in z-10">
+          <div className="absolute right-4 top-4 w-64 p-3 bg-white dark:bg-gray-800 rounded-md shadow-md animate-fade-in z-10">
             <button 
               onClick={() => setShowHint(false)}
               className="absolute top-2 right-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
@@ -99,10 +126,11 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
         </div>
         <button
           onClick={handleExecute}
-          className="px-4 py-2 bg-primary text-white rounded-md flex items-center space-x-2 button-hover-effect"
+          disabled={isExecuting}
+          className={`px-4 py-2 bg-primary text-white rounded-md flex items-center space-x-2 button-hover-effect ${isExecuting ? 'opacity-70 cursor-not-allowed' : ''}`}
         >
           <Play className="w-4 h-4" />
-          <span>Run</span>
+          <span>{isExecuting ? 'Running...' : 'Run'}</span>
         </button>
       </div>
     </div>

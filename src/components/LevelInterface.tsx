@@ -1,8 +1,11 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useAuthSession } from '@/hooks/useAuthSession';
+import { supabase } from '@/integrations/supabase/client';
 import CodeEditor from './CodeEditor';
 import CityView from './CityView';
 import { ChevronRight, ChevronLeft, Lightbulb, Check } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
 
 interface Challenge {
   id: number;
@@ -55,19 +58,91 @@ const LevelInterface: React.FC<LevelInterfaceProps> = ({
   const [showHints, setShowHints] = useState(false);
   const [completedChallenges, setCompletedChallenges] = useState<number[]>([]);
   const [userCode, setUserCode] = useState(challenges[currentChallengeIndex].initialCode);
+  const { user } = useAuthSession();
+  const { toast } = useToast();
   
   const currentChallenge = challenges[currentChallengeIndex];
   
-  const handleExecute = (code: string) => {
+  // Load user progress when component mounts
+  useEffect(() => {
+    if (user) {
+      loadUserProgress();
+    }
+  }, [user]);
+
+  // Load user's progress from the database
+  const loadUserProgress = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('user_levels')
+        .select('level_id, completed_at')
+        .eq('user_id', user?.id)
+        .is('completed_at', 'not.null');
+      
+      if (error) {
+        console.error('Error loading user progress:', error);
+        return;
+      }
+      
+      if (data && data.length > 0) {
+        const completedIds = data.map(level => level.level_id);
+        setCompletedChallenges(completedIds);
+      }
+    } catch (error) {
+      console.error('Failed to load user progress:', error);
+    }
+  };
+
+  // Save user progress to the database
+  const saveUserProgress = async (challengeId: number, completed: boolean) => {
+    if (!user) return;
+
+    try {
+      if (completed) {
+        const { error } = await supabase
+          .from('user_levels')
+          .upsert({
+            user_id: user.id,
+            level_id: challengeId,
+            completed_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          }, { onConflict: 'user_id, level_id' });
+          
+        if (error) {
+          console.error('Error saving progress:', error);
+          toast({
+            title: 'Error',
+            description: 'Could not save your progress',
+            variant: 'destructive',
+          });
+        }
+      }
+    } catch (error) {
+      console.error('Failed to save user progress:', error);
+    }
+  };
+  
+  const handleExecute = async (code: string) => {
     setUserCode(code);
     
     // Simple solution check (in a real app, this would be validated by the backend)
     const normalizedCode = code.trim().toLowerCase().replace(/\s+/g, ' ');
     const normalizedSolution = currentChallenge.solution.trim().toLowerCase().replace(/\s+/g, ' ');
     
-    if (normalizedCode.includes(normalizedSolution)) {
+    const isCorrect = normalizedCode.includes(normalizedSolution);
+    
+    if (isCorrect) {
       if (!completedChallenges.includes(currentChallenge.id)) {
         setCompletedChallenges([...completedChallenges, currentChallenge.id]);
+        
+        // Save progress to the database
+        await saveUserProgress(currentChallenge.id, true);
+        
+        // Show success message
+        toast({
+          title: 'Challenge Completed!',
+          description: 'Great job! You can move to the next challenge now.',
+        });
       }
     }
   };
