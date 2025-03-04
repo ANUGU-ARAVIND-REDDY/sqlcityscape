@@ -1,8 +1,10 @@
-
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import CodeEditor from './CodeEditor';
 import CityView from './CityView';
 import { ChevronRight, ChevronLeft, Lightbulb, Check } from 'lucide-react';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/context/AuthContext';
+import { useToast } from '@/hooks/use-toast';
 
 interface Challenge {
   id: number;
@@ -55,10 +57,90 @@ const LevelInterface: React.FC<LevelInterfaceProps> = ({
   const [showHints, setShowHints] = useState(false);
   const [completedChallenges, setCompletedChallenges] = useState<number[]>([]);
   const [userCode, setUserCode] = useState(challenges[currentChallengeIndex].initialCode);
+  const { user } = useAuth();
+  const { toast } = useToast();
   
   const currentChallenge = challenges[currentChallengeIndex];
   
-  const handleExecute = (code: string) => {
+  // Load user progress
+  useEffect(() => {
+    if (user) {
+      loadUserProgress();
+    }
+  }, [user]);
+  
+  const loadUserProgress = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('user_levels')
+        .select('level_id, completed_at')
+        .eq('user_id', user?.id);
+      
+      if (error) {
+        console.error("Error loading user progress:", error);
+        return;
+      }
+      
+      if (data && data.length > 0) {
+        const completedIds = data
+          .filter(item => item.completed_at !== null)
+          .map(item => item.level_id);
+        setCompletedChallenges(completedIds);
+      }
+    } catch (err) {
+      console.error("Error in loadUserProgress:", err);
+    }
+  };
+  
+  const saveUserProgress = async (challengeId: number, completed: boolean) => {
+    try {
+      if (!user) return;
+      
+      // First, check if the record exists
+      const { data: existingRecord, error: checkError } = await supabase
+        .from('user_levels')
+        .select('id')
+        .eq('user_id', user.id)
+        .eq('level_id', challengeId)
+        .maybeSingle();
+      
+      if (checkError) {
+        console.error("Error checking existing record:", checkError);
+        return;
+      }
+      
+      if (existingRecord) {
+        // Update existing record
+        const { error: updateError } = await supabase
+          .from('user_levels')
+          .update({
+            completed_at: completed ? new Date().toISOString() : null
+          })
+          .eq('id', existingRecord.id);
+        
+        if (updateError) {
+          console.error("Error updating user progress:", updateError);
+        }
+      } else {
+        // Insert new record
+        const { error: insertError } = await supabase
+          .from('user_levels')
+          .insert({
+            user_id: user.id,
+            level_id: challengeId,
+            completed_at: completed ? new Date().toISOString() : null
+          });
+        
+        if (insertError) {
+          console.error("Error inserting user progress:", insertError);
+        }
+      }
+    } catch (err) {
+      console.error("Error in saveUserProgress:", err);
+    }
+  };
+  
+  const handleExecute = async (code: string, success: boolean) => {
     setUserCode(code);
     
     // Simple solution check (in a real app, this would be validated by the backend)
@@ -67,7 +149,16 @@ const LevelInterface: React.FC<LevelInterfaceProps> = ({
     
     if (normalizedCode.includes(normalizedSolution)) {
       if (!completedChallenges.includes(currentChallenge.id)) {
+        // Update UI first for responsiveness
         setCompletedChallenges([...completedChallenges, currentChallenge.id]);
+        
+        // Then save to database
+        await saveUserProgress(currentChallenge.id, true);
+        
+        toast({
+          title: "Challenge completed!",
+          description: "Great job! You've solved this challenge.",
+        });
       }
     }
   };

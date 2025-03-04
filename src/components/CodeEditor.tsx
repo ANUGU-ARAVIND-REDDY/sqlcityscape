@@ -1,39 +1,65 @@
 
 import React, { useState } from 'react';
 import { Play, X, Check, HelpCircle } from 'lucide-react';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/context/AuthContext';
 
 interface CodeEditorProps {
   initialCode?: string;
-  onExecute?: (code: string) => void;
+  onExecute?: (code: string, success: boolean) => void;
 }
 
 const CodeEditor: React.FC<CodeEditorProps> = ({ 
   initialCode = "-- Write your SQL query here\nSELECT * FROM buildings;",
-  onExecute = (code) => console.log("Executing:", code)
+  onExecute = (code, success) => console.log("Executing:", code, "Success:", success)
 }) => {
   const [code, setCode] = useState(initialCode);
   const [showHint, setShowHint] = useState(false);
   const [feedback, setFeedback] = useState<{ message: string; success: boolean } | null>(null);
+  const { session } = useAuth();
 
-  const handleExecute = () => {
-    // Simulate execution and feedback
+  const handleExecute = async () => {
+    // Reset feedback
     setFeedback(null);
     
-    // Artificial delay to simulate processing
-    setTimeout(() => {
-      const isValid = !code.includes("ERROR") && code.trim().length > 10;
+    try {
+      // Call the Supabase edge function to execute the query
+      const { data, error } = await supabase.functions.invoke("execute_sql_query", {
+        body: { query: code },
+      });
+      
+      if (error) {
+        setFeedback({
+          message: `Error: ${error.message}`,
+          success: false
+        });
+        onExecute(code, false);
+        return;
+      }
+      
+      // Check if data exists and is valid
+      const isValid = data && typeof data === 'object';
       
       setFeedback({
         message: isValid 
           ? "Query executed successfully!" 
-          : "Error: Please check your SQL syntax",
+          : "Error: Invalid result returned",
         success: isValid
       });
       
       if (isValid) {
-        onExecute(code);
+        onExecute(code, true);
+      } else {
+        onExecute(code, false);
       }
-    }, 600);
+    } catch (error) {
+      console.error("Error executing query:", error);
+      setFeedback({
+        message: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        success: false
+      });
+      onExecute(code, false);
+    }
   };
 
   return (
