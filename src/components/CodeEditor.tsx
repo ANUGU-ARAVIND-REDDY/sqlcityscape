@@ -6,26 +6,43 @@ import { useAuth } from '@/context/AuthContext';
 
 interface CodeEditorProps {
   initialCode?: string;
+  challenge?: {
+    id: number;
+    title: string;
+    description: string;
+    hints?: string[];
+    initialCode?: string;
+    solution?: string;
+  };
   onExecute?: (code: string, success: boolean) => void;
 }
 
 const CodeEditor: React.FC<CodeEditorProps> = ({ 
   initialCode = "-- Write your SQL query here\nSELECT * FROM buildings;",
+  challenge,
   onExecute = (code, success) => console.log("Executing:", code, "Success:", success)
 }) => {
   const [code, setCode] = useState(initialCode);
   const [showHint, setShowHint] = useState(false);
   const [feedback, setFeedback] = useState<{ message: string; success: boolean } | null>(null);
+  const [isExecuting, setIsExecuting] = useState(false);
+  const [tableData, setTableData] = useState<any>(null);
   const { session } = useAuth();
 
   const handleExecute = async () => {
     // Reset feedback
     setFeedback(null);
+    setIsExecuting(true);
+    setTableData(null);
     
     try {
-      // Call the Supabase edge function to execute the query
+      // Call the Supabase edge function to execute the query, with AI validation if a challenge is provided
       const { data, error } = await supabase.functions.invoke("execute_sql_query", {
-        body: { query: code },
+        body: { 
+          query: code,
+          challenge: challenge, 
+          validateWithAI: !!challenge 
+        },
       });
       
       if (error) {
@@ -34,23 +51,41 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
           success: false
         });
         onExecute(code, false);
+        setIsExecuting(false);
         return;
       }
       
-      // Check if data exists and is valid
-      const isValid = data && typeof data === 'object';
+      console.log("Response from execute_sql_query:", data);
       
-      setFeedback({
-        message: isValid 
-          ? "Query executed successfully!" 
-          : "Error: Invalid result returned",
-        success: isValid
-      });
-      
-      if (isValid) {
-        onExecute(code, true);
+      // Different response format depending on whether we used AI validation
+      if (challenge) {
+        // Handle AI validation response
+        const isCorrect = data.is_correct;
+        setTableData(data.table_data);
+        
+        setFeedback({
+          message: data.feedback || (isCorrect ? "Query is correct!" : "Query is incorrect."),
+          success: isCorrect
+        });
+        
+        onExecute(code, isCorrect);
       } else {
-        onExecute(code, false);
+        // Handle regular execution response
+        const isValid = data && typeof data === 'object';
+        
+        setFeedback({
+          message: isValid 
+            ? "Query executed successfully!" 
+            : "Error: Invalid result returned",
+          success: isValid
+        });
+        
+        if (isValid) {
+          setTableData(data);
+          onExecute(code, true);
+        } else {
+          onExecute(code, false);
+        }
       }
     } catch (error) {
       console.error("Error executing query:", error);
@@ -59,7 +94,56 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
         success: false
       });
       onExecute(code, false);
+    } finally {
+      setIsExecuting(false);
     }
+  };
+
+  // Function to render table data if available
+  const renderTableData = () => {
+    if (!tableData) return null;
+    
+    // Handle different data formats
+    const rows = Array.isArray(tableData) ? tableData : 
+               (tableData.data ? tableData.data : null);
+    
+    if (!rows || rows.length === 0) return <p className="text-sm text-gray-500">No data returned</p>;
+    
+    // Get column names from the first row
+    const columns = Object.keys(rows[0]);
+    
+    return (
+      <div className="mt-4 bg-white dark:bg-gray-800 rounded-md border border-gray-200 dark:border-gray-700 overflow-x-auto">
+        <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+          <thead className="bg-gray-50 dark:bg-gray-900">
+            <tr>
+              {columns.map((column, i) => (
+                <th 
+                  key={i}
+                  className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider"
+                >
+                  {column}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+            {rows.map((row, rowIndex) => (
+              <tr key={rowIndex}>
+                {columns.map((column, colIndex) => (
+                  <td 
+                    key={`${rowIndex}-${colIndex}`}
+                    className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-300"
+                  >
+                    {String(row[column] !== null ? row[column] : 'null')}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
   };
 
   return (
@@ -125,12 +209,18 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
         </div>
         <button
           onClick={handleExecute}
-          className="px-4 py-2 bg-primary text-white rounded-md flex items-center space-x-2 button-hover-effect"
+          disabled={isExecuting}
+          className={`px-4 py-2 bg-primary text-white rounded-md flex items-center space-x-2 ${
+            isExecuting ? 'opacity-50 cursor-not-allowed' : 'button-hover-effect'
+          }`}
         >
           <Play className="w-4 h-4" />
-          <span>Run</span>
+          <span>{isExecuting ? 'Running...' : 'Run'}</span>
         </button>
       </div>
+      
+      {/* Table Data Display */}
+      {tableData && renderTableData()}
     </div>
   );
 };

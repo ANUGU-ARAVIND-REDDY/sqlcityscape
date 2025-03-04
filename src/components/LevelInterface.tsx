@@ -143,17 +143,13 @@ const LevelInterface: React.FC<LevelInterfaceProps> = ({
   const handleExecute = async (code: string, success: boolean) => {
     setUserCode(code);
     
-    // Simple solution check (in a real app, this would be validated by the backend)
-    const normalizedCode = code.trim().toLowerCase().replace(/\s+/g, ' ');
-    const normalizedSolution = currentChallenge.solution.trim().toLowerCase().replace(/\s+/g, ' ');
-    
-    if (normalizedCode.includes(normalizedSolution)) {
+    if (success) {
       if (!completedChallenges.includes(currentChallenge.id)) {
         // Update UI first for responsiveness
         setCompletedChallenges([...completedChallenges, currentChallenge.id]);
         
-        // Then save to database
-        await saveUserProgress(currentChallenge.id, true);
+        // Note: We no longer need to save progress here as it's now handled by the FastAPI service
+        // when a correct solution is validated
         
         toast({
           title: "Challenge completed!",
@@ -287,9 +283,10 @@ const LevelInterface: React.FC<LevelInterfaceProps> = ({
             )}
           </div>
           
-          {/* Code Editor */}
+          {/* Code Editor - Pass the current challenge to the CodeEditor */}
           <CodeEditor 
             initialCode={userCode} 
+            challenge={currentChallenge}
             onExecute={handleExecute}
           />
         </div>
